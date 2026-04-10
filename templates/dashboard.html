@@ -96,6 +96,49 @@
             </div>
         </section>
 
+        <!-- Farmer: list crops + view buyer orders -->
+        <section class="glass-panel main-panel">
+            <h2>List crop for sale</h2>
+            <p class="card-subtitle">Your username is shown to buyers. When a buyer purchases from your listing, the order appears under Incoming orders.</p>
+            <form id="farmer-listing-form">
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="listing-crop">Crop</label>
+                        <input type="text" id="listing-crop" name="crop" placeholder="e.g. Wheat" required autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="listing-district">District</label>
+                        <select id="listing-district" class="glass-select" style="width:100%; padding:10px; border-radius:8px; background:rgba(15,23,42,0.6); color:white; border:1px solid var(--glass-border);">
+                            <option value="">Optional</option>
+                            {% for d in districts %}
+                                <option value="{{ d }}">{{ d }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="listing-qty">Quantity (Quintals)</label>
+                        <input type="number" id="listing-qty" name="quantity" min="1" step="0.01" placeholder="e.g. 50" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="listing-price">Price per Quintal (Rs.)</label>
+                        <input type="number" id="listing-price" name="price" min="1" step="1" placeholder="e.g. 2400" required>
+                    </div>
+                </div>
+                <p id="farmer-listing-msg" class="card-subtitle" style="display:none; margin-top:8px;"></p>
+                <button type="submit" class="btn primary-btn">Publish listing</button>
+            </form>
+        </section>
+
+        <section class="glass-panel main-panel">
+            <h2>Incoming orders</h2>
+            <p class="card-subtitle">Orders from buyers who purchased your listed stock.</p>
+            <div id="farmer-orders-list">
+                <p class="card-subtitle">Loading…</p>
+            </div>
+        </section>
+
         <!-- P&L Calculator Section -->
         <section class="glass-panel main-panel">
             <h2>Profit & Loss Predictor</h2>
@@ -127,6 +170,7 @@
 
         <!-- Results Display -->
         <div class="results-grid" id="results-grid" style="display: none;">
+            <p id="predict-region-note" class="card-subtitle" style="display:none; grid-column: 1 / -1; margin: 0 0 8px; padding: 12px 14px; border-radius: 8px; background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.35); color: var(--text-main);"></p>
             
             <!-- Current Financials -->
             <div class="glass-panel result-card">

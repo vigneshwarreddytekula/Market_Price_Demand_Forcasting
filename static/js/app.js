@@ -1,3 +1,83 @@
+async function loadFarmerOrders() {
+    const list = document.getElementById('farmer-orders-list');
+    if (!list) return;
+    list.innerHTML = '<p class="card-subtitle">Loading orders…</p>';
+    try {
+        const response = await fetch('/api/farmer/orders');
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data)) {
+            list.innerHTML = '<p class="card-subtitle">Unable to load orders.</p>';
+            return;
+        }
+        if (data.length === 0) {
+            list.innerHTML = '<p class="card-subtitle" style="text-align:center;">No orders yet. Publish a crop listing above so buyers can purchase from you.</p>';
+            return;
+        }
+        let html = '';
+        data.forEach((o) => {
+            let statusColor = 'var(--primary)';
+            if (o.status === 'Cancelled' || o.status === 'Rejected') statusColor = 'var(--danger)';
+            if (o.status === 'Accepted') statusColor = '#22c55e';
+            let actionButtons = '';
+            if (o.status === 'Processing') {
+                actionButtons = `
+                    <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                        <button class="btn" style="padding:4px 8px; font-size:0.8rem; background:#14532d; color:#dcfce7; border:1px solid #22c55e;" onclick="farmerOrderAction('${o.id}','accept')">Accept</button>
+                        <button class="btn" style="padding:4px 8px; font-size:0.8rem; background:rgba(239,68,68,0.2); color:var(--danger); border:1px solid var(--danger);" onclick="farmerOrderAction('${o.id}','reject')">Reject</button>
+                    </div>
+                `;
+            }
+            html += `
+                <div class="order-card" style="grid-template-columns: 1.5fr 1fr 1fr 1fr;">
+                    <div>
+                        <div style="color:var(--text-muted); font-size:0.9rem;">Order ID</div>
+                        <strong>${o.id}</strong>
+                        <div style="color:var(--text-muted); font-size:0.8rem; margin-top:3px;">Buyer: ${o.username}</div>
+                    </div>
+                    <div>
+                        <div style="color:var(--text-muted); font-size:0.9rem;">Crop</div>
+                        <strong>${o.quantity} Q · ${o.crop}</strong>
+                    </div>
+                    <div>
+                        <div style="color:var(--text-muted); font-size:0.9rem;">Total</div>
+                        <strong>Rs. ${Number(o.total).toFixed(2)}</strong>
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="order-status" style="color:${statusColor}; border-color:${statusColor}; display:inline-block;">${o.status}</div>
+                        <div style="color:var(--text-muted); font-size:0.85rem; margin-top:8px;">${o.date}</div>
+                        ${actionButtons}
+                    </div>
+                </div>
+            `;
+        });
+        list.innerHTML = html;
+    } catch (err) {
+        console.error(err);
+        list.innerHTML = '<p class="card-subtitle" style="color:var(--danger);">Failed to load orders.</p>';
+    }
+}
+
+async function farmerOrderAction(orderId, action) {
+    const actionLabel = action === 'accept' ? 'accept' : 'reject';
+    if (!confirm(`Are you sure you want to ${actionLabel} this order?`)) return;
+    try {
+        const response = await fetch('/api/farmer/order_action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: orderId, action })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            alert(data.error || 'Failed to update order status.');
+            return;
+        }
+        loadFarmerOrders();
+    } catch (err) {
+        console.error(err);
+        alert('Failed to update order status.');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('calculator-form');
     // Early exit if on login page
@@ -31,6 +111,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.error) {
                 alert("Error: " + data.error);
                 throw new Error(data.error);
+            }
+
+            const regionNoteEl = document.getElementById('predict-region-note');
+            if (regionNoteEl) {
+                if (data.region_note) {
+                    regionNoteEl.style.display = 'block';
+                    regionNoteEl.textContent = data.region_note;
+                } else {
+                    regionNoteEl.style.display = 'none';
+                    regionNoteEl.textContent = '';
+                }
             }
             
             // Render P&L
@@ -87,6 +178,55 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    const farmerListingForm = document.getElementById('farmer-listing-form');
+    if (farmerListingForm) {
+        farmerListingForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById('farmer-listing-msg');
+            const crop = document.getElementById('listing-crop').value.trim();
+            const district = document.getElementById('listing-district').value;
+            const quantity = parseFloat(document.getElementById('listing-qty').value);
+            const price = parseFloat(document.getElementById('listing-price').value);
+            const btn = farmerListingForm.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            if (msg) {
+                msg.style.display = 'none';
+            }
+            try {
+                const res = await fetch('/api/farmer/listing', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ crop, district, quantity, price })
+                });
+                const j = await res.json();
+                if (res.ok && j.success) {
+                    if (msg) {
+                        msg.style.display = 'block';
+                        msg.style.color = 'var(--primary)';
+                        msg.textContent = 'Listing published. Buyers can find it in the Marketplace tab.';
+                    }
+                    farmerListingForm.reset();
+                    loadFarmerOrders();
+                } else if (msg) {
+                    msg.style.display = 'block';
+                    msg.style.color = 'var(--danger)';
+                    msg.textContent = j.error || 'Could not save listing.';
+                }
+            } catch (err) {
+                console.error(err);
+                if (msg) {
+                    msg.style.display = 'block';
+                    msg.style.color = 'var(--danger)';
+                    msg.textContent = 'Network error.';
+                }
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    }
+
+    loadFarmerOrders();
+
     // Buy Form block was removed as we migrated to dynamic inventory.
 });
 
@@ -102,6 +242,7 @@ function switchTab(tabId) {
     
     if (tabId === 'orders') {
         loadOrders();
+        initBuyerOrderNotifications();
     } else if (tabId === 'search') {
         const query = document.getElementById('crop-search').value.trim();
         loadAvailableCrops(query);
@@ -237,7 +378,9 @@ async function loadOrders() {
         let html = '';
         orders.reverse().forEach(o => {
             let cancelBtn = '';
-            let statusColor = o.status === 'Cancelled' ? 'var(--danger)' : 'var(--primary)';
+            let statusColor = 'var(--primary)';
+            if (o.status === 'Cancelled' || o.status === 'Rejected') statusColor = 'var(--danger)';
+            if (o.status === 'Accepted') statusColor = '#22c55e';
             if (o.status === 'Processing') {
                 cancelBtn = `<button class="btn" style="margin-top:5px; padding:4px 8px; font-size:0.8rem; background:rgba(239, 68, 68, 0.2); color:var(--danger); border:1px solid var(--danger);" onclick="cancelOrder('${o.id}')">Cancel Order</button>`;
             }
@@ -246,7 +389,7 @@ async function loadOrders() {
                     <div>
                         <div style="color:var(--text-muted); font-size:0.9rem;">Order ID / Detail</div>
                         <strong>${o.id}</strong>
-                        <div style="color:var(--text-muted); font-size:0.8rem; margin-top:3px;">From: ${o.farmer}</div>
+                        <div style="color:var(--text-muted); font-size:0.8rem; margin-top:3px;">From: ${o.farmer_name || o.farmer || '—'}</div>
                     </div>
                     <div>
                         <div style="color:var(--text-muted); font-size:0.9rem;">Crop Details</div>
@@ -372,6 +515,72 @@ async function placeOrder(inventoryId) {
     }
 }
 
+function _buyerNotificationSeenKeys() {
+    try {
+        return JSON.parse(sessionStorage.getItem('buyerOrderNotificationKeys') || '[]');
+    } catch {
+        return [];
+    }
+}
+
+function _buyerNotificationMarkSeen(keys) {
+    const seen = new Set(_buyerNotificationSeenKeys());
+    keys.forEach((k) => seen.add(k));
+    sessionStorage.setItem('buyerOrderNotificationKeys', JSON.stringify([...seen]));
+}
+
+async function initBuyerOrderNotifications() {
+    const banner = document.getElementById('buyer-order-notifications');
+    const body = document.getElementById('buyer-order-notifications-body');
+    if (!banner || !body) return;
+    try {
+        const response = await fetch('/orders');
+        const orders = await response.json();
+        if (!Array.isArray(orders)) return;
+        const seen = new Set(_buyerNotificationSeenKeys());
+        const pending = [];
+        orders.forEach((o) => {
+            if (o.status === 'Accepted' || o.status === 'Rejected') {
+                const key = `${o.id}|${o.status}`;
+                if (!seen.has(key)) pending.push({ key, o });
+            }
+        });
+        if (pending.length === 0) {
+            banner.style.display = 'none';
+            return;
+        }
+        let html = '<ul style="margin:0; padding:0; list-style:none;">';
+        pending.forEach(({ o }) => {
+            const accepted = o.status === 'Accepted';
+            const bg = accepted ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
+            const border = accepted ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)';
+            const verb = accepted ? 'accepted' : 'rejected';
+            html += `<li style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:${bg}; border:1px solid ${border};">Order <strong>${o.id}</strong> (${o.crop}): the farmer has <strong>${verb}</strong> your order.</li>`;
+        });
+        html += '</ul>';
+        body.innerHTML = html;
+        banner.style.display = 'block';
+        window._buyerPendingNotificationKeys = pending.map((p) => p.key);
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function dismissBuyerOrderNotifications() {
+    const banner = document.getElementById('buyer-order-notifications');
+    if (!banner) return;
+    const keys = window._buyerPendingNotificationKeys || [];
+    if (keys.length) _buyerNotificationMarkSeen(keys);
+    banner.style.display = 'none';
+    window._buyerPendingNotificationKeys = [];
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('buyer-order-notifications')) {
+        initBuyerOrderNotifications();
+    }
+});
+
 async function updateFarmerAnalytics() {
     const districtSelect = document.getElementById('farmer-district-select');
     if (!districtSelect) return;
@@ -416,5 +625,42 @@ async function updateFarmerAnalytics() {
         
     } catch(err) {
         console.error("Failed to update analytics", err);
+    }
+}
+
+async function updateCustomerPrices() {
+    const districtSelect = document.getElementById('price-district-select');
+    if (!districtSelect) return;
+    
+    const district = districtSelect.value;
+    let url = '/api/analytics';
+    if (district) {
+        url += `?district=${encodeURIComponent(district)}`;
+    }
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        const highlightsList = document.getElementById('customer-prices-list');
+        if (highlightsList) {
+            let html = '';
+            const crops = Object.keys(data.highlights);
+            if (crops.length > 0) {
+                crops.forEach(crop => {
+                    html += `
+                        <li>
+                            <strong>${crop}</strong>
+                            <span>Rs. ${data.highlights[crop]} / Quintal</span>
+                        </li>
+                    `;
+                });
+            } else {
+                html = '<li>No market data matching this district.</li>';
+            }
+            highlightsList.innerHTML = html;
+        }
+    } catch(err) {
+        console.error("Failed to update customer prices", err);
     }
 }

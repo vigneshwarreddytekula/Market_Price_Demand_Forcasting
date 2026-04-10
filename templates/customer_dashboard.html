@@ -17,6 +17,17 @@
         </div>
     </nav>
 
+    <div id="buyer-order-notifications" class="glass-panel" style="display:none; max-width: 1100px; margin: 16px auto 0; padding: 16px 20px; border-left: 4px solid var(--primary);">
+        <div style="display:flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;">
+            <div>
+                <strong style="font-size: 1.05rem;">Order updates</strong>
+                <p class="card-subtitle" style="margin: 6px 0 0;">Your farmers have responded to your orders.</p>
+                <div id="buyer-order-notifications-body" style="margin-top: 12px;"></div>
+            </div>
+            <button type="button" class="btn" style="padding: 8px 14px; flex-shrink: 0;" onclick="dismissBuyerOrderNotifications()">Dismiss</button>
+        </div>
+    </div>
+
     <!-- CUSTOMER DASHBOARD TABS -->
     <div class="tabs-container">
         <button class="tab-btn active" onclick="switchTab('search')">Search Crops</button>
@@ -34,6 +45,15 @@
                 <div class="input-group">
                     <label for="crop-search">Crop Name</label>
                     <input type="text" id="crop-search" placeholder="e.g., Apple, Wheat..." onkeyup="searchCrops()">
+                </div>
+                <div class="input-group">
+                    <label for="state-search">Filter by State</label>
+                    <select id="state-search" class="glass-select" onchange="updateSearchDistricts()">
+                        <option value="">-- All States --</option>
+                        {% for s in states %}
+                            <option value="{{ s }}">{{ s }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="input-group">
                     <label for="district-search">Filter by District</label>
@@ -54,12 +74,27 @@
             </div>
         </section>
 
-        <!-- TAB: PRICES -->
         <section id="tab-prices" class="glass-panel main-panel tab-content" style="display: none;">
-            <h2>Market Prices Highlights</h2>
-            <div class="hero-card highlight-card-bg">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                <h2 style="margin: 0;">Market Prices Highlights</h2>
+                <div class="input-group" style="margin: 0; display:flex; gap:10px;">
+                    <select id="price-state-select" class="glass-select" onchange="updatePriceDistricts()" style="min-width: 150px;">
+                        <option value="">-- All States --</option>
+                        {% for s in states %}
+                            <option value="{{ s }}">{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="price-district-select" class="glass-select" onchange="updateCustomerPrices()" style="min-width: 150px;">
+                        <option value="">-- All Districts --</option>
+                        {% for d in districts %}
+                            <option value="{{ d }}">{{ d }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="hero-card highlight-card-bg" style="margin-top: 20px;">
                 <p class="card-subtitle">Latest top-priced crops in the market</p>
-                <ul class="highlight-list">
+                <ul class="highlight-list" id="customer-prices-list">
                     {% for crop, price in highlights.items() %}
                         <li>
                             <strong>{{ crop }}</strong>
@@ -100,6 +135,46 @@
 
     </main>
 
+    <script>
+        const stateDistrictMap = {{ state_district_map | tojson | safe }};
+        const allDistricts = {{ districts | tojson | safe }};
+
+        function populateDistricts(stateSelectId, districtSelectId, defaultOnChange) {
+            const stateSelect = document.getElementById(stateSelectId);
+            const districtSelect = document.getElementById(districtSelectId);
+            const selectedState = stateSelect.value;
+            
+            // Clear current options
+            districtSelect.innerHTML = '<option value="">-- All Districts --</option>';
+            
+            // Choose districts to render
+            let distsToLoad = allDistricts;
+            if (selectedState && stateDistrictMap[selectedState]) {
+                distsToLoad = stateDistrictMap[selectedState];
+            }
+            
+            // Add options dynamically
+            distsToLoad.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = d;
+                districtSelect.appendChild(opt);
+            });
+            
+            // Automatically fetch analytics/results after map is filtered based on current District dropdown selection
+            if (defaultOnChange) {
+                defaultOnChange();
+            }
+        }
+
+        function updateSearchDistricts() {
+            populateDistricts('state-search', 'district-search', searchCrops);
+        }
+
+        function updatePriceDistricts() {
+            populateDistricts('price-state-select', 'price-district-select', updateCustomerPrices);
+        }
+    </script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

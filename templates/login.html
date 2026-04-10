@@ -18,11 +18,14 @@
         {% if error %}
             <div class="alert error-alert">{{ error }}</div>
         {% endif %}
+        {% if success %}
+            <div class="alert success-alert">{{ success }}</div>
+        {% endif %}
         
         <form action="{{ url_for('login') }}" method="POST">
             <div class="input-group">
                 <label for="username">User ID (Username)</label>
-                <input type="text" id="username" name="username" placeholder="try farmer or buyer" required autocomplete="off">
+                <input type="text" id="username" name="username" placeholder="enter your username" required autocomplete="off">
             </div>
             
             <div class="input-group">
@@ -31,6 +34,32 @@
             </div>
             
             <button type="submit" class="btn primary-btn">Secure Login</button>
+        </form>
+
+        <hr style="margin: 18px 0; opacity: 0.25;">
+
+        <h3 style="margin: 0 0 8px;">New user? Register</h3>
+        <form action="{{ url_for('register') }}" method="POST">
+            <div class="input-group">
+                <label for="reg-username">Choose Username</label>
+                <input type="text" id="reg-username" name="username" placeholder="new username" required autocomplete="off">
+            </div>
+
+            <div class="input-group">
+                <label for="reg-password">Choose Password</label>
+                <input type="password" id="reg-password" name="password" placeholder="••••••••" required>
+            </div>
+
+            <div class="input-group">
+                <label for="reg-role">Register as</label>
+                <select id="reg-role" name="role" required>
+                    <option value="">Select role</option>
+                    <option value="farmer">Farmer</option>
+                    <option value="buyer">Buyer</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn primary-btn">Create Account</button>
         </form>
     </div>
 

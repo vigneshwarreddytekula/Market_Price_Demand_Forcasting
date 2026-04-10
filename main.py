@@ -10,13 +10,35 @@ import os
 app = Flask(__name__)
 app.secret_key = "super_secret_market_key_123"
 
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_CANDIDATES = ("data.csv", "agmarknet_india_historical_prices_2024_2025.csv")
+_DATA_COLS = ("Price Date", "Modal Price (Rs./Quintal)", "Commodity", "District Name", "State")
+
+
+def _resolve_data_csv_path():
+    for name in _DATA_CANDIDATES:
+        path = os.path.join(_BASE_DIR, name)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(_BASE_DIR, "data.csv")
+
+
 # Load dataset (memory constrained subset or fast loading)
 print("Loading agricultural dataset...")
 try:
-    df = pd.read_csv("data.csv")
-    df['Price Date'] = pd.to_datetime(df['Price Date'], format="%d %b %Y", errors='coerce')
-    df = df.dropna(subset=['Price Date', 'Modal Price (Rs./Quintal)'])
-    GLOBAL_CROPS = sorted(df['Commodity'].dropna().unique().tolist())
+    csv_path = _resolve_data_csv_path()
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(
+            f"Place a CSV in {_BASE_DIR} named data.csv or {_DATA_CANDIDATES[1]}"
+        )
+    try:
+        df = pd.read_csv(csv_path, usecols=list(_DATA_COLS))
+    except ValueError:
+        df = pd.read_csv(csv_path)
+    df["Price Date"] = pd.to_datetime(df["Price Date"], format="%d %b %Y", errors="coerce")
+    df = df.dropna(subset=["Price Date", "Modal Price (Rs./Quintal)"])
+    GLOBAL_CROPS = sorted(df["Commodity"].dropna().unique().tolist())
+    print(f"Loaded dataset: {os.path.basename(csv_path)} ({len(df)} rows)")
 except Exception as e:
     print(f"Dataset load error: {e}")
     df = pd.DataFrame()
@@ -37,6 +59,12 @@ def close_connection(exception):
     if db is not None:
         db.close()
 
+def _ensure_column(cursor, table, column, coltype):
+    cursor.execute(f"PRAGMA table_info({table})")
+    if column not in [r[1] for r in cursor.fetchall()]:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 def init_db():
     db = get_db()
     cursor = db.cursor()
@@ -53,7 +81,8 @@ def init_db():
                         district TEXT,
                         crop TEXT,
                         quantity REAL,
-                        price REAL)''')
+                        price REAL,
+                        farmer_username TEXT)''')
                         
     cursor.execute('''CREATE TABLE IF NOT EXISTS orders (
                         id TEXT PRIMARY KEY,
@@ -64,14 +93,12 @@ def init_db():
                         price REAL,
                         total REAL,
                         status TEXT,
-                        date TEXT)''')
+                        date TEXT,
+                        farmer_username TEXT)''')
+
+    _ensure_column(cursor, "inventory", "farmer_username", "TEXT")
+    _ensure_column(cursor, "orders", "farmer_username", "TEXT")
     
-    # Seed users if missing
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO users VALUES ('farmer', 'password123', 'farmer')")
-        cursor.execute("INSERT INTO users VALUES ('buyer', 'password123', 'customer')")
-        
     # Seed inventory if missing
     cursor.execute("SELECT COUNT(*) FROM inventory")
     if cursor.fetchone()[0] == 0 and not df.empty and 'District Name' in df.columns:
@@ -80,13 +107,17 @@ def init_db():
         dist_for_inv = df['District Name'].dropna().unique().tolist()[:10]
         
         for _ in range(15):
-            cursor.execute('''INSERT INTO inventory VALUES (?, ?, ?, ?, ?, ?)''',
-                           (str(uuid.uuid4())[:8],
-                            random.choice(mock_farmers),
-                            random.choice(dist_for_inv) if dist_for_inv else "Agra",
-                            random.choice(top_crops_for_inv),
-                            random.randint(10, 200),
-                            random.randint(1000, 5000)))
+            cursor.execute(
+                """INSERT INTO inventory (id, farmer_name, district, crop, quantity, price, farmer_username)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (str(uuid.uuid4())[:8],
+                 random.choice(mock_farmers),
+                 random.choice(dist_for_inv) if dist_for_inv else "Agra",
+                 random.choice(top_crops_for_inv),
+                 random.randint(10, 200),
+                 random.randint(1000, 5000),
+                 None),
+            )
     db.commit()
 
 with app.app_context():
@@ -117,8 +148,36 @@ def login():
             if session['role'] == 'customer':
                 return redirect(url_for('customer_dashboard'))
             return redirect(url_for('dashboard'))
-        error = "Invalid credentials. Try farmer/password123 or buyer/password123"
+        error = "Invalid credentials. Please register first if you are a new user."
     return render_template('login.html', error=error)
+
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    role = request.form.get('role', '').strip().lower()
+
+    if not username or not password or role not in {'farmer', 'buyer'}:
+        return render_template(
+            'login.html',
+            error="Please provide username, password, and choose Farmer or Buyer."
+        )
+
+    # Keep existing role checks compatible with current codebase.
+    stored_role = 'customer' if role == 'buyer' else 'farmer'
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT username FROM users WHERE username = ?", (username,))
+    if cur.fetchone():
+        return render_template('login.html', error="Username already exists. Please choose another.")
+
+    cur.execute(
+        "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+        (username, password, stored_role)
+    )
+    db.commit()
+    return render_template('login.html', success="Registration successful. Please log in.")
 
 @app.route('/logout')
 def logout():
@@ -133,8 +192,20 @@ def customer_dashboard():
         
     highlights = {}
     districts = []
+    states = []
+    state_district_map = {}
+    
     if not df.empty:
         df_clean = df.dropna(subset=['Commodity'])
+        
+        if 'State' in df.columns and 'District Name' in df.columns:
+            temp_df = df_clean.dropna(subset=['State', 'District Name'])
+            grouped = temp_df.groupby('State')['District Name'].unique()
+            for st, dists in grouped.items():
+                if len(dists) > 0:
+                    state_district_map[st] = sorted(list(dists))
+            states = sorted(state_district_map.keys())
+            
         if 'District Name' in df.columns:
             districts = sorted(df['District Name'].dropna().unique().tolist())
             
@@ -148,6 +219,8 @@ def customer_dashboard():
     return render_template('customer_dashboard.html', 
                             username=session['user'],
                             highlights=highlights,
+                            states=states,
+                            state_district_map=state_district_map,
                             districts=districts)
 
 @app.route('/api/buy', methods=['POST'])
@@ -184,9 +257,13 @@ def buy_crop():
     
     order_id = f"ORD-{str(uuid.uuid4())[:8].upper()}"
     date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    cur.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-                (order_id, session['user'], item['farmer_name'], item['crop'], quantity, price_per_q, total, "Processing", date_str))
+    farmer_username = dict(item).get("farmer_username")
+
+    cur.execute(
+        """INSERT INTO orders (id, username, farmer_name, crop, quantity, price, total, status, date, farmer_username)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (order_id, session['user'], item['farmer_name'], item['crop'], quantity, price_per_q, total, "Processing", date_str, farmer_username),
+    )
     db.commit()
     
     order = {
@@ -221,6 +298,88 @@ def get_orders():
     user_orders = [dict(row) for row in cur.fetchall()]
     return jsonify(user_orders)
 
+
+@app.route('/api/farmer/orders')
+def farmer_get_orders():
+    if 'user' not in session or session.get('role') != 'farmer':
+        return jsonify({"error": "Unauthorized"}), 401
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """SELECT id, username, farmer_name, crop, quantity, price, total, status, date
+           FROM orders WHERE farmer_username = ? ORDER BY date DESC""",
+        (session['user'],),
+    )
+    return jsonify([dict(row) for row in cur.fetchall()])
+
+@app.route('/api/farmer/order_action', methods=['POST'])
+def farmer_order_action():
+    if 'user' not in session or session.get('role') != 'farmer':
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.json or {}
+    order_id = data.get('order_id')
+    action = (data.get('action') or '').strip().lower()
+    if action not in {'accept', 'reject'}:
+        return jsonify({"error": "Invalid action"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT * FROM orders WHERE id = ? AND farmer_username = ?",
+        (order_id, session['user'])
+    )
+    order = cur.fetchone()
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
+
+    if order['status'] != 'Processing':
+        return jsonify({"error": f"Order already {order['status'].lower()}"}), 400
+
+    next_status = 'Accepted' if action == 'accept' else 'Rejected'
+    cur.execute("UPDATE orders SET status = ? WHERE id = ?", (next_status, order_id))
+
+    # If a farmer rejects an order, return stock back to that same listing owner.
+    if action == 'reject':
+        cur.execute(
+            """UPDATE inventory
+               SET quantity = quantity + ?
+               WHERE crop = ? AND farmer_name = ? AND (farmer_username = ? OR farmer_username IS NULL)""",
+            (order['quantity'], order['crop'], order['farmer_name'], session['user'])
+        )
+
+    db.commit()
+    return jsonify({"success": True, "status": next_status})
+
+
+@app.route('/api/farmer/listing', methods=['POST'])
+def farmer_add_listing():
+    if 'user' not in session or session.get('role') != 'farmer':
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    crop = (data.get('crop') or '').strip()
+    district = (data.get('district') or '').strip()
+    try:
+        quantity = float(data.get('quantity', 0))
+        price = float(data.get('price', 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid quantity or price"}), 400
+    if not crop or quantity <= 0 or price <= 0:
+        return jsonify({"error": "Crop, quantity, and price are required"}), 400
+    user = session['user']
+    inv_id = str(uuid.uuid4())[:8]
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """INSERT INTO inventory (id, farmer_name, district, crop, quantity, price, farmer_username)
+           VALUES (?,?,?,?,?,?,?)""",
+        (inv_id, user, district or "—", crop, quantity, price, user),
+    )
+    db.commit()
+    cur.execute("SELECT * FROM inventory WHERE id = ?", (inv_id,))
+    row = cur.fetchone()
+    return jsonify({"success": True, "listing": dict(row)})
+
 @app.route('/api/cancel_order', methods=['POST'])
 def cancel_order():
     if 'user' not in session or session.get('role') != 'customer':
@@ -235,11 +394,15 @@ def cancel_order():
     if not order:
         return jsonify({"error": "Order not found"}), 404
         
-    if order['status'] == "Cancelled":
-        return jsonify({"error": "Order is already cancelled"}), 400
+    if order['status'] != "Processing":
+        return jsonify({"error": f"Only processing orders can be cancelled. Current status: {order['status']}"}), 400
         
-    cur.execute("UPDATE inventory SET quantity = quantity + ? WHERE farmer_name = ? AND crop = ?", 
-                (order['quantity'], order['farmer_name'], order['crop']))
+    cur.execute(
+        """UPDATE inventory
+           SET quantity = quantity + ?
+           WHERE crop = ? AND farmer_name = ? AND (farmer_username = ? OR farmer_username IS NULL)""",
+        (order['quantity'], order['crop'], order['farmer_name'], order['farmer_username'])
+    )
     
     cur.execute("UPDATE orders SET status = 'Cancelled' WHERE id = ?", (order_id,))
     db.commit()
@@ -264,7 +427,8 @@ def dashboard():
     recent_crops = []
     highlights = {}
     districts = []
-    
+    high_demand, medium_demand, low_demand = [], [], []
+
     if not df.empty:
         df_clean = df.dropna(subset=['Commodity'])
         all_unique = df_clean['Commodity'].unique().tolist()
@@ -287,7 +451,6 @@ def dashboard():
             highlights[c] = round(grouped[c], 2)
             
         # Demand Analysis Tracker
-        high_demand, medium_demand, low_demand = [], [], []
         popular_crops = latest_data['Commodity'].value_counts().head(10).index.tolist()
         
         for crop in popular_crops:
@@ -334,18 +497,42 @@ def get_price(crop):
 def predict_price(crop):
     if df.empty:
         return jsonify({"error": "Dataset missing"})
-    
-    district = request.args.get('district')
-    
-    if district and 'District Name' in df.columns:
-        result = df[(df['Commodity'].str.lower() == crop.lower()) & (df['District Name'].str.lower() == district.lower())].copy()
+    if "Commodity" not in df.columns:
+        return jsonify({"error": "Dataset missing commodity column"})
+
+    district_param = (request.args.get("district") or "").strip()
+    crop_norm = crop.strip().lower()
+
+    comm = df["Commodity"].astype(str).str.strip().str.lower()
+    base = df[comm == crop_norm].copy()
+
+    if len(base) < 5:
+        return jsonify(
+            {
+                "error": (
+                    f'Not enough price records for "{crop}". '
+                    "Try the exact crop name as in the dataset (e.g. Wheat), or check spelling."
+                )
+            }
+        )
+
+    region_note = None
+    if district_param and "District Name" in df.columns:
+        dnorm = district_param.lower()
+        dist = df["District Name"].astype(str).str.strip().str.lower()
+        result = base[dist == dnorm].copy()
+        if len(result) < 5:
+            result = base.copy()
+            region_note = (
+                f'Fewer than 5 records for "{crop}" in {district_param}. '
+                "Using all regions for this crop so the forecast can run."
+            )
     else:
-        result = df[df['Commodity'].str.lower() == crop.lower()].copy()
-        
+        result = base.copy()
+
     if len(result) < 5:
-        loc = f" in {district}" if district else ""
-        return jsonify({"error": f"Not enough data for {crop}{loc}"})
-    
+        return jsonify({"error": f"Not enough data for {crop}"})
+
     result = result.sort_values(by='Price Date')
     result['Date_Ordinal'] = result['Price Date'].apply(lambda dt: dt.toordinal())
     
@@ -364,14 +551,17 @@ def predict_price(crop):
     trend = "UP" if m > 0 else "DOWN"
     diff = predicted_price - current_avg
     
-    return jsonify({
+    out = {
         "crop": crop.capitalize(),
         "current_avg_price": round(current_avg, 2),
         "predicted_price_30_days": round(predicted_price, 2),
         "trend": trend,
         "difference": round(diff, 2),
-        "future_date": future_date.strftime("%B %d, %Y")
-    })
+        "future_date": future_date.strftime("%B %d, %Y"),
+    }
+    if region_note:
+        out["region_note"] = region_note
+    return jsonify(out)
 
 @app.route('/api/analytics')
 def farmer_analytics():
