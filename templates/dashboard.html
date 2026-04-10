@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farmer Marketplace - Dashboard</title>
+    <!-- Modern Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+    
+    <nav class="navbar glass-panel">
+        <div class="logo">Farmer Market</div>
+        <div class="nav-links">
+            <span class="user-greeting">Welcome, <strong>{{ username }}</strong></span>
+            <a href="{{ url_for('logout') }}" class="btn danger-btn" style="padding: 8px 16px;">Logout</a>
+        </div>
+    </nav>
+
+
+
+    <main class="dashboard-container">
+        
+
+        
+        <!-- NEW HERO HIGHLIGHT SECTION -->
+        <section class="glass-panel hero-section">
+            <div class="hero-header">
+                <h2>Hello, {{ username.title() }}!</h2>
+                <div class="district-badge" style="padding: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                    <select id="farmer-district-select" class="glass-select" style="border: none; background: transparent; color: white; padding: 6px 12px; font-size: 0.9rem; outline: none; cursor: pointer;" onchange="updateFarmerAnalytics()">
+                        <option value="" style="color: #000;">Location: All Regions</option>
+                        {% for d in districts %}
+                            <option value="{{ d }}" style="color: #000;">{{ d }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="hero-grid">
+                <div class="hero-card">
+                    <h3>Available Market Crops</h3>
+                    <p class="card-subtitle">Actively tracked in your region</p>
+                    <div class="tag-container">
+                        {% for crop in recent_crops %}
+                            <span class="crop-tag">{{ crop }}</span>
+                        {% else %}
+                            <span class="crop-tag">No data</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <div class="hero-card highlight-card-bg">
+                    <h3>Today's Market Highlights</h3>
+                    <p class="card-subtitle">Latest top-priced crops in the market</p>
+                    <ul class="highlight-list" id="dynamic-highlights-list">
+                        {% for crop, price in highlights.items() %}
+                            <li>
+                                <strong>{{ crop }}</strong>
+                                <span>Rs. {{ price }} / Quintal</span>
+                            </li>
+                        {% else %}
+                            <li>No market data available.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                
+                <div class="hero-card demand-card">
+                    <h3>Demand Analysis</h3>
+                    <p class="card-subtitle">For your region</p>
+                    <div class="demand-section">
+                        <div class="demand-row up">
+                            <span class="demand-icon">↑</span>
+                            <div class="demand-details">
+                                <strong>High Demand:</strong>
+                                <span id="dynamic-high-demand">{{ high_demand | join(', ') if high_demand else 'None currently' }}</span>
+                            </div>
+                        </div>
+                        <div class="demand-row neutral">
+                            <span class="demand-icon">-</span>
+                            <div class="demand-details">
+                                <strong>Medium Demand:</strong>
+                                <span id="dynamic-medium-demand">{{ medium_demand | join(', ') if medium_demand else 'None currently' }}</span>
+                            </div>
+                        </div>
+                        <div class="demand-row down">
+                            <span class="demand-icon">↓</span>
+                            <div class="demand-details">
+                                <strong>Low Demand:</strong>
+                                <span id="dynamic-low-demand">{{ low_demand | join(', ') if low_demand else 'None currently' }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- P&L Calculator Section -->
+        <section class="glass-panel main-panel">
+            <h2>Profit & Loss Predictor</h2>
+            <form id="calculator-form">
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="crop">Crop Name</label>
+                        <input type="text" id="crop" placeholder="e.g. Wheat" required autocomplete="off">
+                    </div>
+                </div>
+                
+                <div class="prediction-alert" id="ai-alert" style="display: none;">
+                    <strong>AI Predictor active.</strong> Analyzing massive historical market trends for <span id="alert-crop"></span>...
+                </div>
+
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="quantity">Quantity Produced (Quintals)</label>
+                        <input type="number" id="quantity" placeholder="e.g. 50" required min="1">
+                    </div>
+                    <div class="input-group">
+                        <label for="cost">Total Farming Cost (Rs.)</label>
+                        <input type="number" id="cost" placeholder="e.g. 25000" required min="0">
+                    </div>
+                </div>
+                <button type="submit" class="btn primary-btn">Calculate & Predict</button>
+            </form>
+        </section>
+
+        <!-- Results Display -->
+        <div class="results-grid" id="results-grid" style="display: none;">
+            
+            <!-- Current Financials -->
+            <div class="glass-panel result-card">
+                <h3>Current Market Yield</h3>
+                <div class="price-row">
+                    <span>Average Valid Price:</span>
+                    <strong id="res-price">Rs. 0 / Quintal</strong>
+                </div>
+                <div class="price-row highlight">
+                    <span>Estimated Revenue:</span>
+                    <strong id="res-revenue">Rs. 0</strong>
+                </div>
+                <div class="price-row" id="pl-row" style="margin-top: 15px;">
+                    <span>Net Profit / Loss:</span>
+                    <strong id="res-pl">Rs. 0</strong>
+                </div>
+            </div>
+
+            <!-- AI Output -->
+            <div class="glass-panel result-card ai-card">
+                <h3>30-Day AI Forecast</h3>
+                <p class="ai-date" id="ai-future-date"></p>
+                <div class="price-row">
+                    <span>Predicted Price:</span>
+                    <strong id="ai-price">Rs. 0 / Quintal</strong>
+                </div>
+                <div class="trend-box" id="ai-trend-box">
+                    <span id="ai-trend-icon">📈</span>
+                    <span id="ai-trend-text">Trending Up (Rs. 0)</span>
+                </div>
+                <p class="ai-suggestion" id="ai-suggestion"></p>
+            </div>
+            
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

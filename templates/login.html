@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farmer Marketplace - Login</title>
+    <!-- Modern Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-body">
+    
+    <div class="glass-panel login-panel">
+        <div class="logo">🌾 Farmer Market</div>
+        <h2>Welcome Back</h2>
+        <p class="subtitle">Enter your credentials to access the AI dashboard.</p>
+        
+        {% if error %}
+            <div class="alert error-alert">{{ error }}</div>
+        {% endif %}
+        
+        <form action="{{ url_for('login') }}" method="POST">
+            <div class="input-group">
+                <label for="username">User ID (Username)</label>
+                <input type="text" id="username" name="username" placeholder="try farmer or buyer" required autocomplete="off">
+            </div>
+            
+            <div class="input-group">
+                <label for="password">Security Pin (Password)</label>
+                <input type="password" id="password" name="password" placeholder="••••••••" required>
+            </div>
+            
+            <button type="submit" class="btn primary-btn">Secure Login</button>
+        </form>
+    </div>
+
+</body>
+</html>

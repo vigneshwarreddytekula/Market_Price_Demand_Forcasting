@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Marketplace</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-body">
+
+    <nav class="navbar glass-panel">
+        <div class="logo">Customer Market</div>
+        <div class="nav-links">
+            <span class="user-greeting">Welcome, <strong>{{ username.title() }}</strong></span>
+            <a href="{{ url_for('logout') }}" class="btn danger-btn" style="padding: 8px 16px;">Logout</a>
+        </div>
+    </nav>
+
+    <!-- CUSTOMER DASHBOARD TABS -->
+    <div class="tabs-container">
+        <button class="tab-btn active" onclick="switchTab('search')">Search Crops</button>
+        <button class="tab-btn" onclick="switchTab('prices')">View Market Prices</button>
+        <button class="tab-btn" onclick="switchTab('buy')">Buy from Farmers</button>
+        <button class="tab-btn" onclick="switchTab('orders')">My Orders</button>
+    </div>
+
+    <main class="dashboard-container customer-main">
+
+        <!-- TAB: SEARCH -->
+        <section id="tab-search" class="glass-panel main-panel tab-content active-tab">
+            <h2>Search Available Crops</h2>
+            <div class="input-row" style="margin-bottom: 20px;">
+                <div class="input-group">
+                    <label for="crop-search">Crop Name</label>
+                    <input type="text" id="crop-search" placeholder="e.g., Apple, Wheat..." onkeyup="searchCrops()">
+                </div>
+                <div class="input-group">
+                    <label for="district-search">Filter by District</label>
+                    <select id="district-search" class="glass-select" onchange="searchCrops()">
+                        <option value="">-- All Districts --</option>
+                        {% for d in districts %}
+                            <option value="{{ d }}">{{ d }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div id="suggested-crops" class="tag-container" style="margin-bottom: 20px; justify-content: center;"></div>
+            
+            <div class="search-results-grid" id="search-results">
+                <!-- Javascript will populate this -->
+                <p class="card-subtitle" style="text-align: center; width: 100%;">Type above to discover live prices.</p>
+            </div>
+        </section>
+
+        <!-- TAB: PRICES -->
+        <section id="tab-prices" class="glass-panel main-panel tab-content" style="display: none;">
+            <h2>Market Prices Highlights</h2>
+            <div class="hero-card highlight-card-bg">
+                <p class="card-subtitle">Latest top-priced crops in the market</p>
+                <ul class="highlight-list">
+                    {% for crop, price in highlights.items() %}
+                        <li>
+                            <strong>{{ crop }}</strong>
+                            <span>Rs. {{ price }} / Quintal</span>
+                        </li>
+                    {% else %}
+                        <li>No market data currently matching.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </section>
+
+        <!-- TAB: BUY -->
+        <section id="tab-buy" class="glass-panel main-panel tab-content" style="display: none;">
+            <h2>Buy From Farmers</h2>
+            <p class="card-subtitle" style="margin-bottom: 20px;">Live inventory directly from verified local farmers.</p>
+            
+            <div id="order-success" class="prediction-alert" style="display: none; margin-bottom:20px; text-align: center; background: rgba(74, 222, 128, 0.1); color: var(--primary); border-color: var(--primary);">
+                <strong>Payment Successful!</strong> Your order has been placed.
+            </div>
+            <div id="order-error" class="prediction-alert" style="display: none; margin-bottom:20px; text-align: center; background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: var(--danger);">
+                <strong>Error:</strong> <span id="order-error-msg">Insufficient stock.</span>
+            </div>
+
+            <div class="orders-list" id="inventory-list">
+                <p class="card-subtitle">Loading live market inventory...</p>
+            </div>
+        </section>
+
+        <!-- TAB: ORDERS -->
+        <section id="tab-orders" class="glass-panel main-panel tab-content" style="display: none;">
+            <h2>My Orders</h2>
+            <div class="orders-list" id="orders-list">
+                <!-- Populated via AJAX -->
+                <p class="card-subtitle">Loading order history...</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
